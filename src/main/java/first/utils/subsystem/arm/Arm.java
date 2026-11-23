@@ -2,6 +2,7 @@ package first.utils.subsystem.arm;
 
 import java.util.List;
 
+import org.wpilib.math.geometry.Rotation3d;
 import org.wpilib.math.geometry.Translation2d;
 import org.wpilib.math.geometry.Translation3d;
 
@@ -20,11 +21,18 @@ public class Arm {
         Translation3d endEffector = armBase;
 
         for (ArmJoint joint : armJoints){
-            Translation2d armTranslation2d = 
-                new Translation2d(joint.config.length, joint.getAngle());
+            double angleRad = joint.getAngle().getRadians();
+            
+            Rotation3d jointRotation = switch (joint.config.jointType) {
+                case PITCH -> new Rotation3d(0.0, angleRad, 0.0);
+                case YAW -> new Rotation3d(0.0, 0.0, angleRad);
+                case ROLL -> new Rotation3d(angleRad, 0.0, 0.0);
+            };
 
-            Translation3d armTranslation3d = new Translation3d(armTranslation2d).rotateBy(joint.config.jointType.direction);
-            endEffector = endEffector.plus(armTranslation3d);
+            Translation3d linkVector = new Translation3d(joint.config.length, 0.0, 0.0)
+                .rotateBy(jointRotation);
+
+            endEffector = endEffector.plus(linkVector);
         }
 
         return endEffector;
