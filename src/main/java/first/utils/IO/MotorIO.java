@@ -24,10 +24,10 @@ public class MotorIO {
         /** Whether the motor controller is currently connected and responding. */
         public boolean connected = false;
 
-        /** Angular position of the mechanism or shaft. */
+        /** Angular position of the mechanism in rotations (after the configured gear ratio). */
         public double angularPositionRotations = 0.0;
 
-        /** Angular velocity in radians per second. */
+        /** Angular velocity of the mechanism in rotations per second (after the configured gear ratio). */
         public double angularVelocityRotationsPerSecond = 0.0;
 
         /** Applied voltage in volts. */
@@ -41,19 +41,22 @@ public class MotorIO {
 
         /** Motor temperature in degrees Celsius. */
         public double tempCelsius = 0.0;
+
+        /** Creates an inputs struct with every field zeroed and {@code connected} set to false. */
+        public MotorInputs() {}
     }
 
     /**
      * Supported control and idle modes for a {@link MotorIO} instance.
      */
     public enum ControlMode {
-        /** Closed-loop or setpoint angular position control (typically radians or rotations). */
+        /** Closed-loop angular position control, in mechanism rotations. */
         ANGULAR_POSITION,
-        /** Closed-loop or setpoint angular velocity control (typically radians per second). */
+        /** Closed-loop angular velocity control, in mechanism rotations per second. */
         ANGULAR_VELOCITY,
         /** Open-loop duty cycle output in the range {@code [-1.0, 1.0]}. */
         DUTYCYCLE,
-        /** Torque or current control (typically amps or Newton-meters). */
+        /** Torque-producing current control, in amps. */
         TORQUE_CURRENT,
         /** Neutral coast mode (motor leads allowed to spin freely). */
         COAST,
@@ -68,14 +71,26 @@ public class MotorIO {
     private double lastSetpoint = 0.0;
 
     /**
+     * Configuration of the motor behind this {@code MotorIO}, set by hardware implementations such
+     * as {@link first.utils.IO.talon.TalonIO}. It is {@code null} for a {@code MotorIO} built
+     * directly with the {@code with*} methods, and {@link #copy()} does not carry it over.
+     */
+    public MotorConfig config = null;
+
+    /**
      * Creates a new {@code MotorIO} instance with no bound control callbacks.
      * Configure modes via the {@code with*Control} and {@code with*Mode} methods.
      */
     public MotorIO() {}
 
     /**
-     * Creates a shallow copy of this {@code MotorIO} configuration sharing the same
-     * control callback mappings while initializing independent mode and setpoint state.
+     * Creates a shallow copy of this {@code MotorIO} that shares the same control callbacks
+     * (so it commands the same hardware). The copy starts with this instance's current mode
+     * and last setpoint, but tracks them independently afterwards.
+     *
+     * <p>The copy is always a plain {@code MotorIO}, so a subclass's {@link #updateInputs}
+     * override (e.g. {@link first.utils.IO.talon.TalonIO}) is not carried over and the copy
+     * reports no telemetry.
      *
      * @return a new {@code MotorIO} instance with identical control bindings
      */
@@ -91,7 +106,7 @@ public class MotorIO {
     /**
      * Binds a callback for {@link ControlMode#ANGULAR_POSITION}.
      *
-     * @param setAngularPosition consumer accepting the target angular position setpoint
+     * @param setAngularPosition consumer accepting the target position in mechanism rotations
      * @return this {@code MotorIO} instance for method chaining
      */
     public MotorIO withAngularPositionControl(DoubleConsumer setAngularPosition) {
@@ -102,7 +117,7 @@ public class MotorIO {
     /**
      * Binds a callback for {@link ControlMode#ANGULAR_VELOCITY}.
      *
-     * @param setAngularVelocity consumer accepting the target angular velocity setpoint
+     * @param setAngularVelocity consumer accepting the target velocity in mechanism rotations per second
      * @return this {@code MotorIO} instance for method chaining
      */
     public MotorIO withAngularVelocityControl(DoubleConsumer setAngularVelocity) {
@@ -124,7 +139,7 @@ public class MotorIO {
     /**
      * Binds a callback for {@link ControlMode#TORQUE_CURRENT}.
      *
-     * @param setTorque consumer accepting the target torque or current setpoint
+     * @param setTorque consumer accepting the target torque-producing current in amps
      * @return this {@code MotorIO} instance for method chaining
      */
     public MotorIO withTorqueControl(DoubleConsumer setTorque) {
@@ -179,10 +194,17 @@ public class MotorIO {
      * Switches the motor to a standalone mode such as {@link ControlMode#COAST} or
      * {@link ControlMode#BRAKE}.
      *
+     * Resets the last setpoint to {@code 0.0}.
+     *
      * @param mode the mode to activate
+     * @throws IllegalArgumentException if {@code mode} requires a numeric setpoint; use
+     *     {@link #setSetpoint(ControlMode, double)} instead
      * @throws IllegalStateException if no handler is registered for {@code mode}
      */
     public void setMode(ControlMode mode) {
+        if (mode != ControlMode.COAST && mode != ControlMode.BRAKE) {
+            throw new IllegalArgumentException("Mode " + mode + " requires a numeric setpoint; use setSetpoint");
+        }
         Runnable handler = modeControlMap.get(mode);
         if (handler == null) {
             throw new IllegalStateException("No handler registered for control mode: " + mode);
